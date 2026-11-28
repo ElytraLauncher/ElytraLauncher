@@ -23,8 +23,8 @@ import {
   refreshJdks,
   type JdkInfo,
 } from "../config/jdkOptions";
-import { repairVersionFiles } from "../task/download";
-import { openGameFolder } from "../config/gameDirs";
+import { repairVersionFiles, taskBlockingVersion } from "../task/download";
+import { activePath, openGameFolder } from "../config/gameDirs";
 
 export const launchState = reactive({
   /** 启动流程："" 空闲 | "running" 启动中 | "done" 完成 */
@@ -34,6 +34,12 @@ export const launchState = reactive({
 });
 
 export const isLaunching = computed(() => launchState.phase === "running");
+
+/** 当前实例正在被下载/安装/修复时返回任务名；完成前禁止启动。 */
+export const launchBlocker = computed(() => {
+  if (!selectedVersion.value) return null;
+  return taskBlockingVersion(selectedVersion.value, activePath.value);
+});
 
 /** 启动代际号：取消启动时自增，作废在飞流程的落点（doLaunch 每个 await 后校验）。 */
 let launchSeq = 0;
@@ -142,6 +148,11 @@ export async function doLaunch(
   if (isLaunching.value) return;
   if (!selectedVersion.value) {
     navigateToDownload();
+    return;
+  }
+  const blocker = launchBlocker.value;
+  if (blocker) {
+    showToast(t("launch.status.blocked", { task: blocker }));
     return;
   }
 

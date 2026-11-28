@@ -3,7 +3,7 @@
 import { useI18n } from "vue-i18n";
 import { useRouter } from "vue-router";
 import { LayoutGrid, Wrench } from "@lucide/vue";
-import { isLaunching, doLaunch } from "../../store/app/launch";
+import { isLaunching, launchBlocker, doLaunch } from "../../store/app/launch";
 import { selectedVersion } from "../../store/app/selectedVersion";
 import { settingsTab } from "../../store/app/settingsTab";
 
@@ -26,7 +26,7 @@ function goSettings(tab: "launch" | "external") {
       <button
         class="launch-btn"
         :class="{ launching: isLaunching }"
-        :disabled="isLaunching"
+        :disabled="isLaunching || !!launchBlocker"
         @click="doLaunch(goDownload, goSettings)"
       >
         <template v-if="!selectedVersion">
@@ -36,6 +36,10 @@ function goSettings(tab: "launch" | "external") {
         <template v-else-if="isLaunching">
           <span class="launch-label">{{ t("launch.action.launching") }}</span>
           <span class="launch-version">{{ selectedVersion }}</span>
+        </template>
+        <template v-else-if="launchBlocker">
+          <span class="launch-label">{{ t("launch.action.blocked") }}</span>
+          <span class="launch-version">{{ t("launch.status.blocked", { task: launchBlocker }) }}</span>
         </template>
         <template v-else>
           <span class="launch-label">{{ t("launch.action.launch") }}</span>

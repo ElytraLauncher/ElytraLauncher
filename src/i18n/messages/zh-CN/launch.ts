@@ -21,6 +21,7 @@ export default {
     downloadGame: "下载游戏",
     launch: "启动游戏",
     launching: "启动中...",
+    blocked: "暂不可启动",
     selectVersion: "实例管理",
     selectVersionShort: "实例",
     tools: "工具箱",
@@ -39,6 +40,7 @@ export default {
   status: {
     noVersion: "未找到可用的游戏实例",
     gameStarting: "游戏启动中",
+    blocked: "{task} 未完成，暂不可启动",
   },
   steps: {
     java: "检查 Java 环境",

@@ -21,6 +21,7 @@ export default {
     downloadGame: "Download Game",
     launch: "Launch Game",
     launching: "Launching...",
+    blocked: "Unavailable",
     selectVersion: "Manage Instances",
     selectVersionShort: "Instances",
     tools: "Toolbox",
@@ -39,6 +40,7 @@ export default {
   status: {
     noVersion: "No installed instances found",
     gameStarting: "Game is running",
+    blocked: "{task} is incomplete; launching is disabled",
   },
   steps: {
     java: "Check Java environment",

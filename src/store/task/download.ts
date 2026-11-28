@@ -9,6 +9,7 @@ import { showToast } from "../../utils/toast"
 import { errMsg } from "../../utils/error"
 import { t } from "../../i18n"
 import { setTaskbarSource } from "../app/taskbar"
+import { activePath } from "../config/gameDirs"
 
 export type TaskKind = "jdk" | "export";
 
@@ -80,13 +81,15 @@ export interface DownloadFileInput {
 }
 
 /** 批量文件下载（同一任务、每文件一步；前置 Mod 与主 Mod 共用）。 */
-export function downloadFiles(
+export async function downloadFiles(
   versionDirName: string,
   files: DownloadFileInput[],
 ): Promise<string> {
-  return invoke<string>("download_files", {
+  const taskId = await invoke<string>("download_files", {
     task: { version_dir_name: versionDirName, files },
   });
+  registerTaskScope(taskId, { gameDir: activePath.value, version: versionDirName });
+  return taskId;
 }
 
 /** taskId → 安装目录名（下载完成后自动选中为 Mod 下载目标；done 消费后删）。 */
@@ -94,6 +97,47 @@ export const versionTargets = new Map<string, string>();
 
 export function registerVersionTarget(taskId: string, dirName: string) {
   versionTargets.set(taskId, dirName);
+}
+
+/** 任务会改写的实例；prefix = 整合包目录解析前按 `{包名}-` 前缀匹配。 */
+export interface TaskVersionTarget {
+  version: string;
+  prefix?: boolean;
+}
+
+export interface TaskScope extends TaskVersionTarget {
+  gameDir: string;
+}
+
+/** 暂停/中断任务从后端快照取目标；取不到时前端无法判断，按无保护处理。 */
+async function fetchTaskVersionTarget(taskId: string): Promise<TaskVersionTarget | null> {
+  try {
+    return await invoke<TaskVersionTarget | null>("get_task_version_scope", { taskId });
+  } catch {
+    return null;
+  }
+}
+
+/** 响应式：scope 晚于进度卡注册时，启动按钮仍能重新计算。 */
+const taskScopes = reactive(new Map<string, TaskScope>());
+
+export function registerTaskScope(taskId: string, scope: TaskScope) {
+  taskScopes.set(taskId, scope);
+}
+
+/** 正在改写该实例的任务名；对应任务完成前禁止启动。 */
+export function taskBlockingVersion(version: string, gameDir: string): string | null {
+  if (!version) return null;
+  for (const task of dlState.tasks) {
+    if (task.status !== "pending" && task.status !== "running" && task.status !== "paused") continue;
+    const scope = taskScopes.get(task.taskId);
+    if (!scope || scope.gameDir !== gameDir) continue;
+    const hit = scope.prefix
+      ? version === scope.version || version.startsWith(`${scope.version}-`)
+      : version === scope.version;
+    if (hit) return taskLabel(task);
+  }
+  return null;
 }
 
 /** taskId → 完成回调（消费后即删）：特殊任务经统一监听接续自身流程。 */
@@ -172,6 +216,7 @@ export const dlState = reactive({
   },
 
   removeTask(taskId: string) {
+    taskScopes.delete(taskId)
     const idx = this.tasks.findIndex(t => t.taskId === taskId)
     if (idx >= 0) this.tasks.splice(idx, 1)
   },
@@ -205,6 +250,10 @@ export const dlState = reactive({
       display_name: displayName ?? null,
     }
     const taskId = await invoke<string>("start_download", { task })
+    registerTaskScope(taskId, {
+      gameDir: activePath.value,
+      version: versionDirName || versionId,
+    })
     await this.adoptTask(taskId, { name: "" })
     return taskId
   },
@@ -259,6 +308,7 @@ export const dlState = reactive({
     terminalTaskIds.add(taskId)
     terminalResults.set(taskId, false)
     await invoke("cancel_task", { taskId })
+    taskScopes.delete(taskId)
     // 取消不走 done 分发，钩子就地清除防泄漏
     taskDoneHooks.delete(taskId)
     finishTerminalHook(taskId, false)
@@ -273,8 +323,10 @@ export const dlState = reactive({
 
   /** 继续：后端读快照重跑（已完成文件 sha1 跳过），新任务经事件自动注册；移除旧卡片。 */
   async resumePausedTask(taskId: string) {
-    await invoke("resume_task", { taskId })
+    const target = taskScopes.get(taskId) ?? await fetchTaskVersionTarget(taskId)
+    const nextId = await invoke<string>("resume_task", { taskId })
     this.removeTask(taskId)
+    if (target) registerTaskScope(nextId, { ...target, gameDir: activePath.value })
   },
 
   /** 放弃：删快照（重启不再提示恢复）+ 移除卡片。 */
@@ -484,7 +536,9 @@ export async function resumeAllInterrupted() {
   try {
     for (const j of jobs) {
       try {
-        await invoke("resume_task", { taskId: j.id });
+        const target = await fetchTaskVersionTarget(j.id);
+        const nextId = await invoke<string>("resume_task", { taskId: j.id });
+        if (target) registerTaskScope(nextId, { ...target, gameDir: activePath.value });
       } catch {
         failedJobs.push(j);
       }
@@ -537,6 +591,7 @@ export async function repairVersionFiles(versionDirName: string): Promise<number
     (report.client_jar ? 1 : 0) + report.libraries + report.assets + report.natives;
   if (total === 0) return 0;
   const taskId = await submitMissingDownload(versionDirName);
+  registerTaskScope(taskId, { gameDir: activePath.value, version: versionDirName });
   // 预注册任务：徽标立即出现，不等首次 task-progress 事件
   dlState.addTask({
     taskId,

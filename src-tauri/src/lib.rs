@@ -92,8 +92,9 @@ use commands::skins::{
 };
 use commands::task::{
     cancel_task, decide_waiting_task, dismiss_interrupted_task, download_files,
-    download_single_file, install_modpack, list_interrupted_tasks, pause_task, resume_task,
-    scan_missing_files, start_download, submit_install_jdk, submit_missing_download, task_exists,
+    download_single_file, get_task_version_scope, install_modpack, list_interrupted_tasks,
+    pause_task, resume_task, scan_missing_files, start_download, submit_install_jdk,
+    submit_missing_download, task_exists,
 };
 use commands::tooldl::{
     tooldl_cancel, tooldl_clear_finished, tooldl_enqueue, tooldl_get_config, tooldl_list,
@@ -411,6 +412,7 @@ pub fn run() {
             pause_task,
             decide_waiting_task,
             task_exists,
+            get_task_version_scope,
             list_interrupted_tasks,
             resume_task,
             dismiss_interrupted_task,

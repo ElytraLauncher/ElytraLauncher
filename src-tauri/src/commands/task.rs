@@ -11,6 +11,7 @@ use elytra_domain::task::{
     self, files, model, modpack, repair, spawn_download, spawn_install_jdk, spawn_task_with_sink,
     store,
 };
+use elytra_domain::util::sanitize_fs_name;
 
 /// 提交完整下载/安装任务（注册 TaskManager 并后台执行），返回任务 id；注册/spawn/快照走 task::spawn_download。
 #[tauri::command]
@@ -173,6 +174,37 @@ pub fn decide_waiting_task(task_id: String, action: String) -> Result<(), CoreEr
 #[tauri::command]
 pub fn task_exists(task_id: String) -> bool {
     task::global().exists(&task_id)
+}
+
+/// 任务改写的实例目录：前端据此在任务完成前禁用启动；整合包目录解析前按包名前缀匹配。
+#[derive(serde::Serialize)]
+pub struct TaskVersionScope {
+    pub version: String,
+    pub prefix: bool,
+}
+
+#[tauri::command]
+pub async fn get_task_version_scope(task_id: String) -> Option<TaskVersionScope> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let (_, spec) = store::load_spec(&task_id)?;
+        let (version, prefix) = match spec {
+            store::JobSpec::Download(task) => {
+                (task.version_dir_name.unwrap_or(task.version_id), false)
+            }
+            store::JobSpec::Files(task) => (task.version_dir_name, false),
+            store::JobSpec::Repair { version_dir_name } => (version_dir_name, false),
+            store::JobSpec::ModpackInstall(spec) => {
+                (sanitize_fs_name(&spec.request.name, "modpack"), true)
+            }
+            store::JobSpec::InstallJdk { .. } | store::JobSpec::ExportModpack { .. } => {
+                return None
+            }
+        };
+        Some(TaskVersionScope { version, prefix })
+    })
+    .await
+    .ok()
+    .flatten()
 }
 
 // ── 整合包安装（单任务卡片，步骤表动态增长）──

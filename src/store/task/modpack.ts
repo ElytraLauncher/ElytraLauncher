@@ -3,8 +3,32 @@ import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { errMsg } from "../../utils/error";
 import { showToast } from "../../utils/toast";
-import { registerTaskName } from "./download";
+import { activePath } from "../config/gameDirs";
+import { registerTaskName, registerTaskScope } from "./download";
 import { t } from "../../i18n";
+
+/** 与领域层 `sanitize_fs_name` 同规则：非法字符替换、去尾部点、保留名/空名回退。 */
+const RESERVED_NAMES = [
+  "CON", "PRN", "AUX", "NUL",
+  "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+  "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+];
+const INVALID_NAME_CHARS = "<>:\"/\\|?*";
+
+function sanitizeFsName(name: string, fallback: string): string {
+  let cleaned = "";
+  for (const c of name) {
+    const code = c.codePointAt(0) ?? 0;
+    cleaned += INVALID_NAME_CHARS.includes(c) || code < 0x20 || (code >= 0x7f && code <= 0x9f)
+      ? "_"
+      : c;
+  }
+  const trimmed = cleaned.trim();
+  const noTailDot = trimmed.endsWith(".") ? trimmed.slice(0, -1) : trimmed;
+  if (!noTailDot || /^_+$/.test(noTailDot)) return fallback;
+  if (RESERVED_NAMES.some(r => r.toLowerCase() === noTailDot.toLowerCase())) return fallback;
+  return noTailDot;
+}
 
 /** 整合包来源（镜像 Rust `game::modpack::PackSource`，serde tag = "type"）。 */
 export type ModpackSource =
@@ -20,6 +44,12 @@ export interface ModpackInstallRequest {
 export async function installModpack(request: ModpackInstallRequest): Promise<string> {
   const taskId = await invoke<string>("install_modpack", { request });
   registerTaskName(taskId, request.name);
+  // 版本目录在包解析前未知：领域层固定为 `{净化包名}-{mc}`（冲突 `_{n}`）。
+  registerTaskScope(taskId, {
+    gameDir: activePath.value,
+    version: sanitizeFsName(request.name, "modpack"),
+    prefix: true,
+  });
   return taskId;
 }
 
